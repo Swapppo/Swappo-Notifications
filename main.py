@@ -1,15 +1,20 @@
-from fastapi import FastAPI, Depends, HTTPException, Query, status
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, func
-from typing import List, Optional
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import List
+
+from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import and_
+from sqlalchemy.orm import Session
 
 from database import get_db, init_db
 from models import (
-    NotificationDB, NotificationCreate, NotificationResponse,
-    NotificationMarkRead, NotificationStats, NotificationType, ErrorResponse
+    ErrorResponse,
+    NotificationCreate,
+    NotificationDB,
+    NotificationMarkRead,
+    NotificationResponse,
+    NotificationStats,
 )
 
 
@@ -30,7 +35,7 @@ app = FastAPI(
     title="Swappo Notifications Service",
     description="Microservice for managing push notifications in the Swappo app",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Configure CORS
@@ -49,18 +54,14 @@ async def root():
     return {
         "service": "Swappo Notifications Service",
         "status": "running",
-        "version": "1.0.0"
+        "version": "1.0.0",
     }
 
 
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Detailed health check endpoint"""
-    return {
-        "status": "healthy",
-        "service": "notifications",
-        "version": "1.0.0"
-    }
+    return {"status": "healthy", "service": "notifications", "version": "1.0.0"}
 
 
 @app.post(
@@ -70,22 +71,21 @@ async def health_check():
     tags=["Notifications"],
     responses={
         201: {"description": "Notification created successfully"},
-        400: {"model": ErrorResponse, "description": "Invalid request data"}
-    }
+        400: {"model": ErrorResponse, "description": "Invalid request data"},
+    },
 )
 async def create_notification(
-    notification_data: NotificationCreate,
-    db: Session = Depends(get_db)
+    notification_data: NotificationCreate, db: Session = Depends(get_db)
 ):
     """
     Create a new notification for a user.
-    
+
     This endpoint is typically called by other microservices (e.g., matchmaking)
     to notify users about events like new trade offers, accepted trades, etc.
-    
+
     Args:
         notification_data: Notification details
-        
+
     Returns:
         NotificationResponse: Created notification
     """
@@ -97,13 +97,13 @@ async def create_notification(
         related_user_id=notification_data.related_user_id,
         related_item_id=notification_data.related_item_id,
         related_offer_id=notification_data.related_offer_id,
-        is_read=False
+        is_read=False,
     )
-    
+
     db.add(db_notification)
     db.commit()
     db.refresh(db_notification)
-    
+
     return db_notification
 
 
@@ -111,36 +111,38 @@ async def create_notification(
     "/api/v1/notifications/{user_id}",
     response_model=List[NotificationResponse],
     tags=["Notifications"],
-    responses={
-        200: {"description": "Notifications retrieved successfully"}
-    }
+    responses={200: {"description": "Notifications retrieved successfully"}},
 )
 async def get_user_notifications(
     user_id: str,
-    unread_only: bool = Query(False, description="Filter to show only unread notifications"),
-    limit: int = Query(50, ge=1, le=100, description="Number of notifications to retrieve"),
+    unread_only: bool = Query(
+        False, description="Filter to show only unread notifications"
+    ),
+    limit: int = Query(
+        50, ge=1, le=100, description="Number of notifications to retrieve"
+    ),
     offset: int = Query(0, ge=0, description="Number of notifications to skip"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Get all notifications for a specific user.
-    
+
     Args:
         user_id: User ID
         unread_only: If True, return only unread notifications
         limit: Maximum number of notifications to return
         offset: Number of notifications to skip (for pagination)
-        
+
     Returns:
         List[NotificationResponse]: List of notifications
     """
     query = db.query(NotificationDB).filter(NotificationDB.user_id == user_id)
-    
+
     if unread_only:
-        query = query.filter(NotificationDB.is_read == False)
-    
+        query = query.filter(NotificationDB.is_read.is_(False))
+
     query = query.order_by(NotificationDB.created_at.desc()).offset(offset).limit(limit)
-    
+
     return query.all()
 
 
@@ -150,50 +152,54 @@ async def get_user_notifications(
     tags=["Notifications"],
     responses={
         200: {"description": "Notifications marked as read"},
-        404: {"model": ErrorResponse, "description": "Notifications not found"}
-    }
+        404: {"model": ErrorResponse, "description": "Notifications not found"},
+    },
 )
 async def mark_notifications_as_read(
     mark_data: NotificationMarkRead,
     user_id: str = Query(..., description="User ID performing the action"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Mark one or more notifications as read.
-    
+
     Args:
         mark_data: List of notification IDs to mark as read
         user_id: User ID performing the action (for authorization)
-        
+
     Returns:
         dict: Summary of marked notifications
     """
     # Get notifications that belong to this user
-    notifications = db.query(NotificationDB).filter(
-        and_(
-            NotificationDB.id.in_(mark_data.notification_ids),
-            NotificationDB.user_id == user_id
+    notifications = (
+        db.query(NotificationDB)
+        .filter(
+            and_(
+                NotificationDB.id.in_(mark_data.notification_ids),
+                NotificationDB.user_id == user_id,
+            )
         )
-    ).all()
-    
+        .all()
+    )
+
     if not notifications:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No notifications found for the given IDs"
+            detail="No notifications found for the given IDs",
         )
-    
+
     # Mark as read
     now = datetime.now(timezone.utc)
     for notification in notifications:
         if not notification.is_read:
             notification.is_read = True
             notification.read_at = now
-    
+
     db.commit()
-    
+
     return {
         "marked_count": len(notifications),
-        "notification_ids": [n.id for n in notifications]
+        "notification_ids": [n.id for n in notifications],
     }
 
 
@@ -204,43 +210,46 @@ async def mark_notifications_as_read(
     responses={
         200: {"description": "Notification marked as read"},
         404: {"model": ErrorResponse, "description": "Notification not found"},
-        403: {"model": ErrorResponse, "description": "Not authorized"}
-    }
+        403: {"model": ErrorResponse, "description": "Not authorized"},
+    },
 )
 async def mark_single_notification_as_read(
     notification_id: int,
     user_id: str = Query(..., description="User ID performing the action"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Mark a single notification as read.
-    
+
     Args:
         notification_id: Notification ID
         user_id: User ID performing the action
-        
+
     Returns:
         NotificationResponse: Updated notification
     """
-    notification = db.query(NotificationDB).filter(
-        and_(
-            NotificationDB.id == notification_id,
-            NotificationDB.user_id == user_id
+    notification = (
+        db.query(NotificationDB)
+        .filter(
+            and_(
+                NotificationDB.id == notification_id, NotificationDB.user_id == user_id
+            )
         )
-    ).first()
-    
+        .first()
+    )
+
     if not notification:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Notification with ID {notification_id} not found"
+            detail=f"Notification with ID {notification_id} not found",
         )
-    
+
     if not notification.is_read:
         notification.is_read = True
         notification.read_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(notification)
-    
+
     return notification
 
 
@@ -251,37 +260,40 @@ async def mark_single_notification_as_read(
     responses={
         204: {"description": "Notification deleted successfully"},
         403: {"model": ErrorResponse, "description": "Not authorized"},
-        404: {"model": ErrorResponse, "description": "Notification not found"}
-    }
+        404: {"model": ErrorResponse, "description": "Notification not found"},
+    },
 )
 async def delete_notification(
     notification_id: int,
     user_id: str = Query(..., description="User ID performing the action"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Delete a notification.
-    
+
     Args:
         notification_id: Notification ID
         user_id: User ID performing the action
     """
-    notification = db.query(NotificationDB).filter(
-        and_(
-            NotificationDB.id == notification_id,
-            NotificationDB.user_id == user_id
+    notification = (
+        db.query(NotificationDB)
+        .filter(
+            and_(
+                NotificationDB.id == notification_id, NotificationDB.user_id == user_id
+            )
         )
-    ).first()
-    
+        .first()
+    )
+
     if not notification:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Notification with ID {notification_id} not found"
+            detail=f"Notification with ID {notification_id} not found",
         )
-    
+
     db.delete(notification)
     db.commit()
-    
+
     return None
 
 
@@ -289,23 +301,18 @@ async def delete_notification(
     "/api/v1/notifications/user/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["Notifications"],
-    responses={
-        204: {"description": "All notifications deleted successfully"}
-    }
+    responses={204: {"description": "All notifications deleted successfully"}},
 )
-async def delete_all_user_notifications(
-    user_id: str,
-    db: Session = Depends(get_db)
-):
+async def delete_all_user_notifications(user_id: str, db: Session = Depends(get_db)):
     """
     Delete all notifications for a user.
-    
+
     Args:
         user_id: User ID
     """
     db.query(NotificationDB).filter(NotificationDB.user_id == user_id).delete()
     db.commit()
-    
+
     return None
 
 
@@ -313,33 +320,28 @@ async def delete_all_user_notifications(
     "/api/v1/notifications/{user_id}/stats",
     response_model=NotificationStats,
     tags=["Notifications"],
-    responses={
-        200: {"description": "Notification statistics retrieved successfully"}
-    }
+    responses={200: {"description": "Notification statistics retrieved successfully"}},
 )
-async def get_notification_stats(
-    user_id: str,
-    db: Session = Depends(get_db)
-):
+async def get_notification_stats(user_id: str, db: Session = Depends(get_db)):
     """
     Get notification statistics for a user.
-    
+
     Args:
         user_id: User ID
-        
+
     Returns:
         NotificationStats: Statistics about user's notifications
     """
-    notifications = db.query(NotificationDB).filter(NotificationDB.user_id == user_id).all()
-    
+    notifications = (
+        db.query(NotificationDB).filter(NotificationDB.user_id == user_id).all()
+    )
+
     total = len(notifications)
     unread = sum(1 for n in notifications if not n.is_read)
     read = total - unread
-    
+
     return NotificationStats(
-        total_notifications=total,
-        unread_notifications=unread,
-        read_notifications=read
+        total_notifications=total, unread_notifications=unread, read_notifications=read
     )
 
 
@@ -347,30 +349,26 @@ async def get_notification_stats(
     "/api/v1/notifications/{user_id}/unread-count",
     response_model=dict,
     tags=["Notifications"],
-    responses={
-        200: {"description": "Unread count retrieved successfully"}
-    }
+    responses={200: {"description": "Unread count retrieved successfully"}},
 )
-async def get_unread_count(
-    user_id: str,
-    db: Session = Depends(get_db)
-):
+async def get_unread_count(user_id: str, db: Session = Depends(get_db)):
     """
     Get the count of unread notifications for a user.
-    
+
     This is a lightweight endpoint for badge counters.
-    
+
     Args:
         user_id: User ID
-        
+
     Returns:
         dict: Unread notification count
     """
-    count = db.query(NotificationDB).filter(
-        and_(
-            NotificationDB.user_id == user_id,
-            NotificationDB.is_read == False
+    count = (
+        db.query(NotificationDB)
+        .filter(
+            and_(NotificationDB.user_id == user_id, NotificationDB.is_read.is_(False))
         )
-    ).count()
-    
+        .count()
+    )
+
     return {"unread_count": count}
