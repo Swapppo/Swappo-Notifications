@@ -1,13 +1,16 @@
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import List
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from database import get_db, init_db
+from metrics import record_http_request
 from models import (
     ErrorResponse,
     NotificationCreate,
@@ -37,6 +40,30 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Prometheus instrumentation
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
+
+
+# Middleware to track HTTP request metrics
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
+    start_time = time.time()
+    response = await call_next(request)
+    duration = time.time() - start_time
+
+    record_http_request(
+        method=request.method,
+        endpoint=request.url.path,
+        status_code=response.status_code,
+        duration=duration,
+    )
+
+    return response
+
 
 # Configure CORS
 app.add_middleware(
