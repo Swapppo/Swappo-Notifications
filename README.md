@@ -1,203 +1,73 @@
-# Swappo Notifications Service
+# Swappo-Notifications
 
-## Overview
-
-The Swappo Notifications Service is a RESTful microservice responsible for managing push notifications for users in the Swappo platform. This service handles the creation, storage, and retrieval of notifications related to trade offers, messages, and other app events.
+Notification microservice for the Swappo platform managing push notifications with RabbitMQ integration.
 
 ## Features
 
-### Notification Management
-- Create notifications for users
-- Retrieve user notifications with filtering
-- Mark notifications as read (single or bulk)
-- Delete notifications
-- Get unread notification counts
-- View notification statistics
+- **Notification Management**: Create, read, delete notifications
+- **RabbitMQ Consumer**: Background processing of async notifications
+- **Mark as Read**: Single or bulk read status updates
+- **Unread Counts**: Efficient badge counter endpoint
+- **Statistics**: User notification analytics
+- **Prometheus Metrics**: Built-in monitoring
 
-### Notification Types
-- `trade_offer_received` - New trade offer received
-- `trade_offer_accepted` - Trade offer was accepted
-- `trade_offer_rejected` - Trade offer was rejected
-- `trade_offer_cancelled` - Trade offer was cancelled
-- `trade_completed` - Trade was completed
-- `new_message` - New message received
-- `item_liked` - Someone liked your item
-- `system` - System notifications
+## Notification Types
 
-## Architecture
+- `trade_offer_received`, `trade_offer_accepted`, `trade_offer_rejected`
+- `trade_offer_cancelled`, `trade_completed`
+- `new_message`, `item_liked`, `system`
 
-```
-Swappo-Notifications/
-├── main.py              # FastAPI application and endpoints
-├── models.py            # Pydantic and SQLAlchemy models
-├── database.py          # Database connection and session management
-├── requirements.txt     # Python dependencies
-├── Dockerfile          # Container configuration
-├── docker-compose.yml  # Multi-container orchestration
-└── README.md           # This file
+## Quick Start
+
+### Docker (Recommended)
+
+```bash
+docker-compose up -d
 ```
 
-## Data Models
+### Local Development
 
-### Notification
-
-**Database Schema:**
-```sql
-CREATE TABLE notifications (
-    id SERIAL PRIMARY KEY,
-    user_id VARCHAR(100) NOT NULL,
-    type VARCHAR(50) NOT NULL,
-    title VARCHAR(255) NOT NULL,
-    body TEXT NOT NULL,
-    related_user_id VARCHAR(100),
-    related_item_id INTEGER,
-    related_offer_id INTEGER,
-    is_read BOOLEAN DEFAULT FALSE,
-    read_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+```bash
+pip install -r requirements.txt
+uvicorn main:app --reload
 ```
 
 ## API Endpoints
 
-### Health Check
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | Service info |
+| GET | `/health` | Health check |
+| POST | `/api/v1/notifications` | Create notification |
+| GET | `/api/v1/notifications/{user_id}` | Get user notifications |
+| GET | `/api/v1/notifications/{user_id}/unread-count` | Get unread count |
+| GET | `/api/v1/notifications/{user_id}/stats` | Get statistics |
+| PATCH | `/api/v1/notifications/mark-read` | Mark multiple as read |
+| PATCH | `/api/v1/notifications/{id}/read` | Mark single as read |
+| DELETE | `/api/v1/notifications/{id}` | Delete notification |
+| DELETE | `/api/v1/notifications/user/{user_id}` | Delete all user notifications |
+| GET | `/metrics` | Prometheus metrics |
 
-#### `GET /`
-Basic health check returning service information.
+## Environment Variables
 
-#### `GET /health`
-Detailed health check with service status.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | - | PostgreSQL connection string |
+| `SQL_ECHO` | false | Enable SQL query logging |
+| `RABBITMQ_HOST` | rabbitmq | RabbitMQ host |
+| `RABBITMQ_PORT` | 5672 | RabbitMQ port |
+| `RABBITMQ_QUEUE` | notifications | Queue name |
 
-### Notification Management
+## Service Integration
 
-#### `POST /api/v1/notifications`
-Create a new notification for a user.
+- **RabbitMQ Consumer**: Background worker processes async notification messages from queue
+- **Matchmaking Service**: Publishes trade offer notifications
+- **Chat Service**: Publishes new message notifications
 
-**Request Body:**
-```json
-{
-  "user_id": "user123",
-  "type": "trade_offer_received",
-  "title": "New Trade Offer",
-  "body": "You received a new trade offer from John",
-  "related_user_id": "user456",
-  "related_item_id": 123,
-  "related_offer_id": 789
-}
-```
+## Documentation
 
-**Response:** `201 Created`
-```json
-{
-  "id": 1,
-  "user_id": "user123",
-  "type": "trade_offer_received",
-  "title": "New Trade Offer",
-  "body": "You received a new trade offer from John",
-  "related_user_id": "user456",
-  "related_item_id": 123,
-  "related_offer_id": 789,
-  "is_read": false,
-  "read_at": null,
-  "created_at": "2025-11-24T10:30:00Z"
-}
-```
-
----
-
-#### `GET /api/v1/notifications/{user_id}`
-Get all notifications for a specific user.
-
-**Query Parameters:**
-- `unread_only` (optional, default: false): Filter to show only unread notifications
-- `limit` (optional, default: 50): Number of notifications to retrieve
-- `offset` (optional, default: 0): Pagination offset
-
-**Response:** `200 OK` - Array of notifications
-
----
-
-#### `GET /api/v1/notifications/{user_id}/unread-count`
-Get the count of unread notifications for a user (lightweight endpoint for badge counters).
-
-**Response:** `200 OK`
-```json
-{
-  "unread_count": 5
-}
-```
-
----
-
-#### `GET /api/v1/notifications/{user_id}/stats`
-Get notification statistics for a user.
-
-**Response:** `200 OK`
-```json
-{
-  "total_notifications": 25,
-  "unread_notifications": 5,
-  "read_notifications": 20
-}
-```
-
----
-
-#### `PATCH /api/v1/notifications/mark-read`
-Mark multiple notifications as read.
-
-**Query Parameters:**
-- `user_id` (required): User ID performing the action
-
-**Request Body:**
-```json
-{
-  "notification_ids": [1, 2, 3]
-}
-```
-
-**Response:** `200 OK`
-```json
-{
-  "marked_count": 3,
-  "notification_ids": [1, 2, 3]
-}
-```
-
----
-
-#### `PATCH /api/v1/notifications/{notification_id}/read`
-Mark a single notification as read.
-
-**Query Parameters:**
-- `user_id` (required): User ID performing the action
-
-**Response:** `200 OK` - Updated notification
-
----
-
-#### `DELETE /api/v1/notifications/{notification_id}`
-Delete a specific notification.
-
-**Query Parameters:**
-- `user_id` (required): User ID performing the action
-
-**Response:** `204 No Content`
-
----
-
-#### `DELETE /api/v1/notifications/user/{user_id}`
-Delete all notifications for a user.
-
-**Response:** `204 No Content`
-
----
-
-## Running the Service
-
-### Prerequisites
-
-- Docker and Docker Compose
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
 - Python 3.11+ (for local development)
 - PostgreSQL 15+ (for local development)
 
