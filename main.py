@@ -102,8 +102,54 @@ async def lifespan(app: FastAPI):
 # Initialize FastAPI app
 app = FastAPI(
     title="Swappo Notifications Service",
-    description="Microservice for managing push notifications in the Swappo app",
+    description="""## Push Notifications & Alerts API
+
+**Swappo Notifications Service** manages push notifications and user alerts.
+
+### Features
+- 🔔 Push notification delivery
+- 📬 RabbitMQ message queue consumer
+- 📊 Notification history and read status
+- 🎯 Targeted notifications by user ID
+- 📈 Notification statistics and analytics
+
+### Notification Flow
+1. Services publish to RabbitMQ queue (e.g., new trade offer)
+2. Notifications service consumes messages asynchronously
+3. Notifications stored in database
+4. Users fetch via `/api/v1/notifications` endpoint
+5. Mark as read for read receipts
+
+### Event Types
+- `new_trade_offer` - Someone proposed a trade
+- `trade_accepted` - Your trade was accepted
+- `trade_rejected` - Your trade was declined
+- `new_message` - New chat message received
+- `new_match` - Successful match created
+
+### Integration
+- Consumes from RabbitMQ `notifications` queue
+- Async processing with retry logic
+- Survives temporary service outages
+    """,
     version="1.0.0",
+    contact={
+        "name": "Swappo API Support",
+        "url": "https://swappo.art",
+        "email": "api@swappo.art",
+    },
+    license_info={
+        "name": "MIT",
+    },
+    openapi_tags=[
+        {
+            "name": "Health",
+            "description": "Service health and RabbitMQ connection status",
+        },
+        {"name": "Notifications", "description": "Fetch and manage user notifications"},
+        {"name": "Statistics", "description": "Notification metrics and analytics"},
+    ],
+    root_path="/notifications",  # Fix for Kong reverse proxy - enables correct OpenAPI schema URLs
     lifespan=lifespan,
 )
 
