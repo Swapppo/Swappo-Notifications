@@ -1,7 +1,8 @@
+import asyncio
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,17 +21,82 @@ from models import (
     NotificationStats,
 )
 
+# Import RabbitMQ consumer
+from rabbitmq_consumer import NotificationConsumer, run_consumer_in_background
+
+# Global consumer instance
+consumer: Optional[NotificationConsumer] = None
+consumer_task: Optional[asyncio.Task] = None
+
+
+def handle_notification_message(notification_data: dict) -> bool:
+    """
+    Handler function for processing notification messages from RabbitMQ
+
+    Args:
+        notification_data: Notification payload from queue
+
+    Returns:
+        True if processed successfully, False otherwise
+    """
+    try:
+        # Create database session
+        db = next(get_db())
+
+        # Create notification in database
+        db_notification = NotificationDB(
+            user_id=notification_data["user_id"],
+            type=notification_data["type"],
+            title=notification_data["title"],
+            body=notification_data["body"],
+            related_user_id=notification_data.get("related_user_id"),
+            is_read=False,
+            created_at=datetime.now(timezone.utc),
+        )
+
+        db.add(db_notification)
+        db.commit()
+        db.refresh(db_notification)
+
+        print(f"✅ Notification saved to database: {db_notification.id}")
+
+        db.close()
+        return True
+
+    except Exception as e:
+        print(f"❌ Error handling notification message: {type(e).__name__}: {e}")
+        return False
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Lifespan context manager for startup and shutdown events.
     """
+    global consumer, consumer_task
+
     # Startup: Initialize database
     init_db()
+
+    # Initialize and start RabbitMQ consumer
+    consumer = NotificationConsumer(message_handler=handle_notification_message)
+    consumer_task = asyncio.create_task(run_consumer_in_background(consumer))
+    print("✅ RabbitMQ consumer started in background")
+
     yield
-    # Shutdown: Cleanup if needed
-    pass
+
+    # Shutdown: Cleanup
+    if consumer:
+        consumer.close()
+
+    if consumer_task:
+        consumer_task.cancel()
+        try:
+            await consumer_task
+        except asyncio.CancelledError:
+            print("✅ Consumer task cancelled")
+
+    print("✅ Notifications service shutdown complete")
 
 
 # Initialize FastAPI app
