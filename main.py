@@ -107,11 +107,11 @@ app = FastAPI(
 **Swappo Notifications Service** manages push notifications and user alerts.
 
 ### Features
-- 🔔 Push notification delivery
-- 📬 RabbitMQ message queue consumer
-- 📊 Notification history and read status
-- 🎯 Targeted notifications by user ID
-- 📈 Notification statistics and analytics
+- Push notification delivery
+- RabbitMQ message queue consumer
+- Notification history and read status
+- Targeted notifications by user ID
+- Notification statistics and analytics
 
 ### Notification Flow
 1. Services publish to RabbitMQ queue (e.g., new trade offer)
